@@ -1,0 +1,6 @@
+package ma.fsbm.lias.domain.enums;
+
+public enum TypeNotification {
+    ADHESION_SOUMISE, ADHESION_DECISION, EVENEMENT_CREE, EVENEMENT_RAPPEL,
+    DOCUMENT_AJOUTE, BESOIN_DECISION, RAPPORT_GENERE
+}

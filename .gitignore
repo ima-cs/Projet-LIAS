@@ -1,0 +1,42 @@
+# Maven / Java
+target/
+*.class
+*.jar
+*.war
+*.ear
+
+# Logs
+*.log
+logs/
+
+# IDE
+.vscode/
+.idea/
+*.iml
+.classpath
+.project
+.settings/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets / configuration locale
+.env
+.env.*
+application-local.yml
+application-local.yaml
+application-*.local.yml
+application-*.local.yaml
+*.key
+*.pem
+
+# Stockage local généré par l'application
+storage/
+uploads/
+
+# Fichiers temporaires
+*.tmp
+*.temp
+*.swp
+*~
