@@ -32,7 +32,7 @@ application-*.local.yaml
 *.pem
 
 # Stockage local généré par l'application
-storage/
+lias-backend/storage/
 uploads/
 
 # Fichiers temporaires
