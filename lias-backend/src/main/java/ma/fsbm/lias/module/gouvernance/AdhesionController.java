@@ -8,6 +8,13 @@ import org.springframework.web.bind.annotation.*;
 @RequiredArgsConstructor
 public class AdhesionController {
 
+  @ModelAttribute
+  public void privateResponse(
+    jakarta.servlet.http.HttpServletResponse response
+  ) {
+    response.setHeader("Cache-Control", "no-store");
+  }
+
   private final AdhesionService service;
 
   @PostMapping(value = "/api/public/adhesions", consumes = "application/json")

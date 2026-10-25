@@ -1,6 +1,19 @@
 import { test, expect } from "@playwright/test";
-import { readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
+import { execFileSync } from "node:child_process";
+
+function databaseState(email) {
+  const query = `SELECT json_build_object('compte',u.id,'membre',m.id,'etat',u.etat_compte,'admin',u.est_admin,'passwordAbsent',u.mot_de_passe_hash IS NULL,'tokenPresent',u.token_activation IS NOT NULL,'expirationPresent',u.token_expiration IS NOT NULL,'affiliations',(SELECT count(*) FROM affiliation a WHERE a.membre_id=m.id AND a.date_fin IS NULL),'statut',(SELECT type_statut FROM historique_statut s WHERE s.membre_id=m.id AND s.date_fin IS NULL),'demande',d.statut_demande,'membreLie',d.membre_cree_id=m.id,'decisionPresente',d.date_decision IS NOT NULL AND d.traite_par_membre_id IS NOT NULL) FROM utilisateur u JOIN membre m ON m.utilisateur_id=u.id JOIN demande_adhesion d ON d.membre_cree_id=m.id WHERE u.email='${email}';`;
+  return JSON.parse(
+    execFileSync(
+      "psql",
+      ["-h", "localhost", "-U", "lias", "-d", "lias", "-t", "-A", "-c", query],
+      {
+        encoding: "utf8",
+        env: { ...process.env, PGPASSWORD: process.env.LIAS_DB_PASSWORD },
+      },
+    ).trim(),
+  );
+}
 
 async function login(page, role) {
   await page.goto("/connexion");
@@ -13,6 +26,7 @@ async function login(page, role) {
 test("candidature avec CV, acceptation, invitation locale et activation réelle", async ({
   page,
   request,
+  context,
 }) => {
   const email = `candidat.demo.${Date.now()}@example.ma`;
   const loginResponse = await request.post("/api/auth/login", {
@@ -24,6 +38,7 @@ test("candidature avec CV, acceptation, invitation locale et activation réelle"
   });
   expect(file.ok()).toBeTruthy();
   await page.goto("/adhesion");
+  await expect(page.locator("input[type=password]")).toHaveCount(0);
   await page.getByLabel("Nom", { exact: false }).first().fill("CandidatDémo");
   await page.getByLabel("Prénom").fill("Salma");
   await page.getByLabel("Adresse e-mail").fill(email);
@@ -50,24 +65,60 @@ test("candidature avec CV, acceptation, invitation locale et activation réelle"
   ).toBeVisible();
   await page.getByRole("button", { name: "Confirmer la décision" }).click();
   await expect(row.getByText("Acceptee", { exact: true })).toBeVisible();
-  const outbox = fileURLToPath(
-    new URL("../../lias-backend/storage/invitations-demo.txt", import.meta.url),
-  );
-  await expect
-    .poll(async () => {
-      try {
-        return (await readFile(outbox, "utf8")).includes(email);
-      } catch {
-        return false;
-      }
-    })
-    .toBe(true);
-  const text = await readFile(outbox, "utf8");
-  const link = text.split(email + "\n")[1].split("\n")[0];
+  const panel = page.getByRole("region", {
+    name: "Invitation du nouveau membre",
+  });
+  await expect(
+    panel.getByRole("button", { name: "Copier le lien" }),
+  ).toBeVisible();
+  const link = await panel.getByLabel("Lien d’activation").inputValue();
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await panel.getByRole("button", { name: "Copier le lien" }).click();
+  await expect(panel.getByRole("status")).toHaveText("Lien copié.");
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(link);
+  await expect(
+    panel.getByRole("link", { name: "Ouvrir la page d’activation" }),
+  ).toHaveAttribute("href", link);
+  expect(new URL(link).pathname).toBe("/activation");
+  expect(databaseState(email)).toMatchObject({
+    etat: "ACTIF",
+    admin: false,
+    passwordAbsent: true,
+    tokenPresent: true,
+    expirationPresent: true,
+    affiliations: 1,
+    statut: "DOCTORANT",
+    demande: "ACCEPTEE",
+    membreLie: true,
+    decisionPresente: true,
+  });
+  await page.reload();
+  await row.getByRole("button", { name: "Lien d’activation" }).click();
+  await expect(page.getByLabel("Lien d’activation")).toHaveValue(link);
   await page.getByRole("button", { name: "Se déconnecter" }).click();
   await page.goto(link);
-  await page.getByLabel("Mot de passe").fill("CompteDemo2026!");
+  await page.getByLabel("Mot de passe (8 caractères minimum)").fill("CompteDemo2026!");
+  await page.getByLabel("Confirmer le mot de passe").fill("CompteDemo2026!");
+  const activated = page.waitForResponse(
+    (r) =>
+      r.url().endsWith("/api/auth/activer") && r.request().method() === "POST",
+  );
   await page.getByRole("button", { name: "Activer le compte" }).click();
+  expect((await activated).status()).toBe(204);
+  expect(databaseState(email)).toMatchObject({
+    passwordAbsent: false,
+    tokenPresent: false,
+    expirationPresent: false,
+    affiliations: 1,
+    statut: "DOCTORANT",
+  });
+  const reused = await request.post("/api/auth/activer", {
+    data: {
+      token: new URL(link).searchParams.get("token"),
+      motDePasse: "CompteDemo2026!",
+    },
+  });
+  expect(reused.status()).toBe(400);
   await expect(page.getByText("Compte activé.")).toBeVisible();
   await page.getByRole("link", { name: "Se connecter", exact: true }).click();
   await page.getByLabel("Adresse e-mail").fill(email);

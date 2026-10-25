@@ -526,11 +526,51 @@ class ApplicationIntegrationTest {
     var u = users.findByEmailIgnoreCase(email).orElseThrow();
     assertNull(u.getMotDePasseHash());
     assertNotNull(u.getTokenActivation());
+    assertEquals(EtatCompte.ACTIF, u.getEtatCompte());
+    assertFalse(u.isEstAdmin());
+    assertTrue(u.getTokenExpiration().isAfter(LocalDateTime.now()));
+    assertEquals(
+      "http://127.0.0.1:5173/activation?token=" + u.getTokenActivation(),
+      result.get("activationUrl").asText()
+    );
+    Long createdId = result.get("membreCreeId").asLong();
+    assertEquals(
+      u.getId(),
+      members.findById(createdId).orElseThrow().getUtilisateur().getId()
+    );
+    assertEquals(
+      1,
+      affiliations
+        .findAll()
+        .stream()
+        .filter(
+          a -> a.getMembre().getId().equals(createdId) && a.getDateFin() == null
+        )
+        .count()
+    );
+    var accepted = admissions.findById(d.get("id").asLong()).orElseThrow();
+    assertNotNull(accepted.getDateDecision());
+    assertEquals(id("directeur"), accepted.getTraitePar().getId());
     assertEquals(
       "DOCTORANT",
       history
         .etat(result.get("membreCreeId").asLong(), LocalDate.now())
         .get("statut")
+    );
+  }
+
+  @Test
+  void invitationReusesOnlyAnUnattachedUnactivatedAccount() {
+    var existing = accounts.inviter("unattached@example.ma");
+    var oldToken = existing.getTokenActivation();
+    var reused = accounts.inviter("unattached@example.ma");
+    assertEquals(existing.getId(), reused.getId());
+    assertNotEquals(oldToken, reused.getTokenActivation());
+    assertEquals(EtatCompte.ACTIF, reused.getEtatCompte());
+    assertNull(reused.getMotDePasseHash());
+    assertFalse(reused.isEstAdmin());
+    assertThrows(ma.fsbm.lias.common.error.ConflictException.class, () ->
+      accounts.inviter("permanent@lias.ma")
     );
   }
 

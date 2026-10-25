@@ -47,7 +47,7 @@ public class AdhesionService {
   ) {}
 
   public Map<String, Object> view(DemandeAdhesion d) {
-    return of(
+    var result = of(
       "id",
       d.getId(),
       "nom",
@@ -71,6 +71,13 @@ public class AdhesionService {
       "membreCreeId",
       d.getMembreCree() == null ? null : d.getMembreCree().getId()
     );
+    if (
+      d.getStatutDemande() == StatutDemande.ACCEPTEE &&
+      d.getMembreCree() != null
+    ) result.putAll(
+      accounts.invitationDemo(d.getMembreCree().getUtilisateur().getId())
+    );
+    return result;
   }
 
   public Map<String, Object> submit(Request r) {

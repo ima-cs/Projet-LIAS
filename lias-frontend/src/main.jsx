@@ -566,6 +566,8 @@ function Login() {
 }
 function Activate() {
   const [done, setDone] = useState(false);
+  const invitationToken =
+    new URLSearchParams(useLocation().search).get("token") || "";
   return (
     <Page
       title="Activer votre compte"
@@ -579,11 +581,12 @@ function Activate() {
         <div className="narrow">
           <Form
             initial={{
-              token:
-                new URLSearchParams(window.location.search).get("token") || "",
+              token: invitationToken,
             }}
             fields={[
-              field("token", "Jeton d’invitation"),
+              ...(!invitationToken
+                ? [field("token", "Jeton d’invitation")]
+                : []),
               {
                 ...field(
                   "motDePasse",
@@ -592,9 +595,15 @@ function Activate() {
                 ),
                 minLength: 8,
               },
+              field("confirmation", "Confirmer le mot de passe", "password"),
             ]}
             onSubmit={async (v) => {
-              await api("/api/auth/activer", { method: "POST", body: v });
+              if (v.motDePasse !== v.confirmation)
+                throw new Error("Les mots de passe ne correspondent pas.");
+              await api("/api/auth/activer", {
+                method: "POST",
+                body: { token: v.token, motDePasse: v.motDePasse },
+              });
               setDone(true);
             }}
             submit="Activer le compte"
@@ -2203,12 +2212,66 @@ function Admissions() {
   const r = useData("/api/adhesions");
   const teams = useData("/api/equipes");
   const [form, setForm] = useState(null);
+  const [invitation, setInvitation] = useState(null);
+  const [copyMessage, setCopyMessage] = useState("");
   return (
     <Page
       title="Demandes d’adhésion"
       description="Examiner les candidatures et accueillir les futurs membres."
     >
       <Status {...r} />
+      {invitation && (
+        <section
+          className="panel card"
+          aria-label="Invitation du nouveau membre"
+        >
+          <h2>Compte créé : transmettre le lien d’activation</h2>
+          <p>
+            <strong>{invitation.email}</strong> peut choisir son mot de passe
+            avec ce lien. Valable jusqu’au{" "}
+            {new Date(invitation.activationExpiration).toLocaleString("fr-FR")}.
+          </p>
+          <label>
+            Lien d’activation
+            <input
+              style={{ width: "100%" }}
+              readOnly
+              value={invitation.activationUrl}
+              onFocus={(e) => e.target.select()}
+            />
+          </label>
+          <div className="row-actions" style={{ marginTop: 16 }}>
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(invitation.activationUrl);
+                  setCopyMessage("Lien copié.");
+                } catch {
+                  setCopyMessage(
+                    "Sélectionnez le lien ci-dessus et utilisez Ctrl+C.",
+                  );
+                }
+              }}
+            >
+              Copier le lien
+            </button>
+            <a
+              className="button secondary"
+              href={invitation.activationUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Ouvrir la page d’activation
+            </a>
+          </div>
+          <p role="status">{copyMessage}</p>
+          <small>
+            Invitation personnelle : remettre uniquement au candidat. Aucun mot
+            de passe n’est défini par le directeur.
+          </small>
+        </section>
+      )}
       {form && (
         <section>
           <h2>
@@ -2253,7 +2316,7 @@ function Admissions() {
             onCancel={() => setForm(null)}
             submit="Confirmer la décision"
             onSubmit={async (v) => {
-              await api(`/api/adhesions/${form.id}/decision`, {
+              const decision = await api(`/api/adhesions/${form.id}/decision`, {
                 method: "POST",
                 body: {
                   ...v,
@@ -2261,6 +2324,8 @@ function Admissions() {
                   equipeId: v.equipeId ? Number(v.equipeId) : null,
                 },
               });
+              setInvitation(decision.activationUrl ? decision : null);
+              setCopyMessage("");
               setForm(null);
               r.reload();
             }}
@@ -2288,11 +2353,25 @@ function Admissions() {
           },
           { key: "motifRefus", label: "Motif" },
         ]}
-        actions={(d) =>
-          d.statutDemande === "EN_ATTENTE" && (
-            <button onClick={() => setForm(d)}>Examiner</button>
-          )
-        }
+        actions={(d) => (
+          <>
+            {d.statutDemande === "EN_ATTENTE" && (
+              <button onClick={() => setForm(d)}>Examiner</button>
+            )}
+            {d.activationUrl && (
+              <button
+                className="secondary"
+                onClick={() => {
+                  setInvitation(d);
+                  setCopyMessage("");
+                  window.scrollTo({ top: 0, behavior: "smooth" });
+                }}
+              >
+                Lien d’activation
+              </button>
+            )}
+          </>
+        )}
       />
     </Page>
   );
