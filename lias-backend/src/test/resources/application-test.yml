@@ -1,0 +1,14 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/lias?currentSchema=lias_test
+  flyway:
+    default-schema: lias_test
+    schemas: lias_test
+    create-schemas: true
+  jpa:
+    properties:
+      hibernate:
+        default_schema: lias_test
+lias:
+  storage:
+    root: ./target/test-storage
